@@ -1,0 +1,162 @@
+services:
+  app:
+    container_name: goca-api
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '8080:8080'
+    depends_on:
+      db:
+          condition: service_healthy
+      redis:
+          condition: service_healthy
+    volumes:
+      - .env:/app/.env:ro
+      - ./logs:/app/logs
+      - ./migrations:/app/migrations
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  db:
+    container_name: goca-db
+    image: postgres:17-alpine
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:-user}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-password}
+      POSTGRES_DB: ${DATABASE_DB:-goca}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-user} -d ${DATABASE_DB:-goca}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    container_name: goca-redis
+    image: redis/redis-stack:7.2.0-v11
+    environment:
+      REDIS_ARGS: '--requirepass ${REDIS_PASSWORD:-password}'
+    ports:
+      - '8001:8001'
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: goca-promtail
+    volumes:
+      - ./scripts/promtail/config.yaml:/etc/promtail/config.yaml:ro  # Mount config
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro  # Scrape Docker logs
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Untuk discover labels
+      - ./logs:/host/logs:ro
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:latest
+    container_name: goca-loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki_data:/loki
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.88.0
+    container_name: goca-otel-collector
+    volumes:
+      - ./scripts/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "8889:8889" # Prometheus exporter
+    restart: unless-stopped
+    networks:
+      - app_network
+
+  prometheus:
+      image: prom/prometheus:latest
+      container_name: goca-prometheus
+      ports:
+        - "9090:9090"
+      volumes:
+        # Mount file konfigurasi Prometheus
+        - ./scripts/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+        # Volume untuk menyimpan data metrik secara persisten
+        - prometheus_data:/prometheus
+      command:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+      networks:
+        - app_network
+      restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.2.0
+    container_name: goca-tempo
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./scripts/tempo/tempo.yaml:/etc/tempo.yaml
+    ports:
+      - "3200:3200"   # Tempo API
+    restart: unless-stopped
+    networks:
+      - app_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: goca-grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./scripts/grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_PLUGINS_ALLOW_UNSIGNED=true
+    networks:
+      - app_network
+    restart: unless-stopped
+
+volumes:
+  db_data:
+    name: goca_db_data
+  redis_data:
+    name: goca_redis_data
+  loki_data:
+    name: goca_loki_data
+  grafana_data:
+    name: goca_grafana_data
+  prometheus_data:
+    name: goca_prometheus_data
+
+networks:
+  app_network:
+    driver: bridge

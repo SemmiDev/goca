@@ -1,0 +1,43 @@
+version: "2"
+
+run:
+  concurrency: 8  # Sesuaikan dengan CPU core untuk app besar
+  timeout: 30m    # Untuk codebase besar
+  tests: true     # Linting tests juga
+  modules-download-mode: readonly  # Jangan modifikasi go.mod
+
+output:
+  format: colored-line-number  # Output ramah mata
+  print-issued-lines: false    # Hindari clutter
+  sort-results: true           # Urutkan hasil
+
+issues:
+  max-issues-per-linter: 0     # Tampilkan semua issue
+  max-same-issues: 0
+
+linters:
+  disable-all: true            # Disable default, enable manual
+  enable:
+    - govet                    # Suspicious constructs
+    - staticcheck              # Static analysis
+    - gosec                    # Security checks (penting untuk real-world)
+    - errcheck                 # Unchecked errors
+    - bodyclose                # Close HTTP bodies
+    - gocritic                 # Code critiques
+    - unused                   # Unused code
+    - ineffassign              # Ineffective assignments
+    - asciicheck               # ASCII identifiers
+    - bidichk                  # Unicode security
+    - contextcheck             # Context usage
+    - durationcheck            # Duration bugs
+    - errorlint                # Error handling best practices
+
+linters-settings:
+  goimports:
+    local-prefixes: myapp/     # Prioritaskan import lokal
+  govet:
+    enable-all: true           # Enable semua vet checks
+  staticcheck:
+    checks: ["all"]            # Semua static checks
+  gosec:
+    excludes: ["G107"]         # Exclude jika perlu (misal false positive)

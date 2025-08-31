@@ -1,0 +1,162 @@
+# ===================================================================
+# KONFIGURASI SERVER PROPTAIL
+# ===================================================================
+# Bagian ini mengontrol server internal Promtail itu sendiri, yang
+# berguna untuk monitoring dan debugging Promtail.
+server:
+  # Port untuk web server HTTP internal Promtail.
+  # Anda bisa mengakses http://<promtail_ip>:9080/metrics untuk melihat metrik Prometheus
+  # tentang kinerja Promtail (berapa banyak file yang dibaca, berapa byte yang diproses, dll).
+  # Ini sangat penting untuk memantau kesehatan Promtail.
+  http_listen_port: 9080
+
+  # Port untuk server gRPC. Digunakan untuk tujuan administratif lanjutan.
+  # Mengaturnya ke 0 berarti menonaktifkannya, yang merupakan pengaturan umum dan aman.
+  grpc_listen_port: 0
+
+# ===================================================================
+# MANAJEMEN POSISI (POSITIONS)
+# ===================================================================
+# Bagian ini sangat krusial untuk keandalan (reliability).
+positions:
+  # Lokasi file di mana Promtail menyimpan "bookmark" atau posisi terakhir
+  # yang telah dibacanya dari setiap file log.
+  # Jika Promtail di-restart, ia akan membaca file ini untuk tahu harus
+  # melanjutkan dari mana, sehingga tidak ada log yang terlewat atau terkirim dua kali.
+  # PENTING: Dalam lingkungan kontainer (Docker/Kubernetes), file ini HARUS
+  # dipasang (mounted) ke volume persisten.
+  filename: /tmp/positions.yaml
+
+# ===================================================================
+# KONFIGURASI KLIEN (CLIENTS)
+# ===================================================================
+# Bagian ini mendefinisikan ke mana Promtail akan mengirim log
+# yang telah dikumpulkan dan diproses.
+clients:
+  - # URL dari endpoint API Loki.
+    # 'http://loki:3100' adalah alamat yang umum digunakan dalam lingkungan Docker Compose,
+    # di mana 'loki' adalah nama service dari kontainer Loki.
+    # Pastikan Promtail dapat menjangkau alamat ini.
+    url: http://loki:3100/loki/api/v1/push
+
+# ===================================================================
+# KONFIGURASI SCRAPING (SCRAPE CONFIGS)
+# ===================================================================
+# Ini adalah inti dari Promtail. Anda mendefinisikan "job" untuk
+# menemukan, membaca, dan memproses file log. Anda bisa memiliki banyak job.
+scrape_configs:
+
+  # -------------------------------------------------------------------
+  # JOB 1: Mengambil log dari file aplikasi spesifik (.log)
+  # -------------------------------------------------------------------
+  # Job ini dikonfigurasi secara statis untuk membaca semua file yang
+  # cocok dengan pola path yang diberikan.
+  - job_name: 'goca-app-files'
+    static_configs:
+      - # 'targets' dalam konteks static_configs biasanya hanya [localhost]
+        # karena Promtail membaca file dari sistem lokalnya.
+        targets: [localhost]
+        # 'labels' di sini adalah label statis yang akan ditambahkan ke SETIAP
+        # baris log yang berasal dari job ini.
+        labels:
+          job: goca-app-files      # Label wajib untuk identifikasi job.
+          container: goca-api      # Label kustom untuk identifikasi aplikasi.
+          env: development         # Contoh label tambahan, misal: production, staging.
+          # '__path__' adalah label khusus yang memberitahu Promtail file mana yang harus dibaca.
+          # Pola wildcard '/host/logs/*.log' akan membaca SEMUA file dengan ekstensi .log
+          # di dalam direktori /host/logs.
+          __path__: /host/logs/*.log
+
+    # # Pipeline Stages: Rangkaian proses untuk mengubah log mentah sebelum dikirim ke Loki.
+    # pipeline_stages:
+    #   # TAHAP 1: Parsing JSON
+    #   # Mengubah setiap baris log dari string JSON menjadi struktur data yang dapat diolah.
+    #   - json:
+    #       # 'expressions' mendefinisikan field mana dari JSON yang akan diekstrak.
+    #       # Format 'nama_di_promtail: nama_asli_di_json'.
+    #       expressions:
+    #         level: level
+    #         time: ts
+    #         caller: caller
+    #         msg: msg
+    #         component: component
+    #         request_id: request_id
+    #         query: query
+    #         query_type: query_type
+    #         rows_affected: rows_affected
+    #         method: method
+    #         path: path
+    #         status_code: status_code
+    #         duration_ms: duration_ms
+    #         ip: ip
+
+    #   # TAHAP 2: Pengaturan Timestamp
+    #   # Menggunakan timestamp dari dalam log itu sendiri, bukan waktu saat log dibaca.
+    #   # Ini memastikan akurasi waktu yang sempurna.
+    #   - timestamp:
+    #       source: time       # Mengambil nilai dari field 'time' yang diekstrak pada tahap sebelumnya.
+    #       format: RFC3339   # Format timestamp yang digunakan oleh logger Anda (Zap).
+
+    #   # TAHAP 3: Pembuatan Label Dinamis
+    #   # Membuat label dari konten log. Label adalah kunci utama untuk query yang cepat dan efisien di Loki.
+    #   # Best Practice: Hanya gunakan field dengan jumlah nilai unik yang rendah (low cardinality) sebagai label.
+    #   - labels:
+    #       level:          # Baik: Hanya ada beberapa nilai (INFO, ERROR, DEBUG).
+    #       component:      # Baik: Jumlah komponen aplikasi biasanya terbatas.
+    #       status_code:    # Cukup baik: Jumlah status code HTTP terbatas.
+    #       query_type:     # Cukup baik: Jumlah jenis query (INSERT, SELECT) terbatas.
+    #       # PERINGATAN: JANGAN pernah menjadikan field seperti 'msg', 'request_id', atau 'query' sebagai label,
+    #       # karena nilainya unik dan akan "meledakkan" indeks Loki (cardinality explosion).
+
+    #   # TAHAP 4: Filtering (Opsional, tapi sangat berguna)
+    #   # Memilih baris log mana yang akan disimpan atau dibuang.
+    #   - match:
+    #       # 'selector' memilih log mana yang akan dikenai aturan ini, berdasarkan label yang sudah ada.
+    #       # `{level="DEBUG"}` akan memilih semua log yang memiliki label level DEBUG.
+    #       selector: '{level="DEBUG"}'
+    #       # 'action' bisa 'keep' (simpan) atau 'drop' (buang).
+    #       # Aturan ini sangat berguna untuk mengurangi "noise" dan biaya penyimpanan di lingkungan produksi
+    #       # dengan tidak mengirimkan log DEBUG ke Loki.
+    #       action: drop
+
+    #   # TAHAP 5: Formatting Output
+    #   # Mengubah format baris log akhir yang akan dikirim ke Loki.
+    #   - output:
+    #       # 'source' menentukan field mana yang akan menjadi isi log baru.
+    #       # Kita memilih 'msg' karena semua metadata lainnya (level, caller, dll) sudah diekstrak
+    #       # dan dapat dilihat sebagai field di Loki. Ini membuat tampilan log lebih bersih.
+    #       source: msg
+
+  # -------------------------------------------------------------------
+  # JOB 2: Menemukan dan mengambil log dari SEMUA kontainer Docker
+  # -------------------------------------------------------------------
+  # Job ini menggunakan service discovery untuk secara otomatis mendeteksi
+  # semua kontainer yang berjalan dan mengambil log stdout/stderr mereka.
+  # - job_name: 'system-docker'
+  #   docker_sd_configs:
+  #     - host: unix:///var/run/docker.sock
+  #       # Seberapa sering Promtail akan memeriksa Docker untuk kontainer baru atau yang berhenti.
+  #       refresh_interval: 15s
+
+  #   # Relabeling: Proses mengubah metadata yang ditemukan oleh service discovery
+  #   # menjadi label yang berguna di Loki.
+  #   relabel_configs:
+  #     # Ambil nama kontainer dari metadata Docker...
+  #     - source_labels: ['__meta_docker_container_name']
+  #       # Hapus karakter '/' di awal nama kontainer (misal, dari '/goca-api' menjadi 'goca-api').
+  #       regex: '/(.*)'
+  #       # ...dan jadikan sebagai label 'container'.
+  #       target_label: 'container'
+
+  #     # Ini adalah konfigurasi penting yang mengambil path file log JSON internal Docker
+  #     # dan memberitahukannya kepada Promtail sebagai file yang harus dibaca.
+  #     - source_labels: ['__meta_docker_container_log_path']
+  #       target_label: '__path__'
+
+  #   # Pipeline untuk log dari Docker
+  #   pipeline_stages:
+  #     # 'docker: {}' adalah stage khusus yang sudah dioptimalkan untuk mem-parse
+  #     # format log standar Docker (JSON yang membungkus output stdout/stderr).
+  #     # Ini secara otomatis menangani timestamp dan stream (stdout/stderr) tanpa
+  #     # perlu konfigurasi 'json' yang rumit.
+  #     - docker: {}

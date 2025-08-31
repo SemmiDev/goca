@@ -1,0 +1,29 @@
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      maxLines: 1000
+    isDefault: false # <-- UBAH MENJADI FALSE
+
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # This links traces to metrics in Prometheus
+      tracesToMetrics:
+        datasourceUid: 'Prometheus'
+        tags: [{ key: 'service.name' }, { key: 'http.route' }]
+        spanStartTimeShift: '1h'
+        spanEndTimeShift: '1h'
+        lokiSearch: false
