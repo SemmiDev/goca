@@ -220,6 +220,7 @@ func initializeServer(
 		validator,
 		db,
 		noteRepo,
+		userRepo,
 	)
 	noteHandler := noteHdl.NewNoteHandler(noteService)
 

@@ -25,6 +25,7 @@ type NoteService struct {
 	db        database.Database
 	tracer    trace.Tracer
 	noteRepo  NoteRepository
+	UserRepo  UserRepository
 }
 
 func NewNoteService(
@@ -33,6 +34,7 @@ func NewNoteService(
 	validator validator.Validator,
 	db database.Database,
 	noteRepo NoteRepository,
+	UserRepo UserRepository,
 ) *NoteService {
 	return &NoteService{
 		cfg:       cfg,
@@ -41,6 +43,7 @@ func NewNoteService(
 		db:        db,
 		tracer:    otel.Tracer("note_service"),
 		noteRepo:  noteRepo,
+		UserRepo:  UserRepo,
 	}
 }
 
